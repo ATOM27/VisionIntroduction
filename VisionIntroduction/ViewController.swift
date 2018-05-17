@@ -28,7 +28,16 @@ class ViewController: UIViewController {
         self.view.addSubview(imageView)
         
 //        self.detectFace(imageView: self.imageView)
-        self.detectLandmarks(imageView: imageView)
+        self.detectLandmarks(imageView: imageView) { (faceObservation, faceRect)  in
+            self.detectAndDrawLeftEye(faceObservation: faceObservation, faceRect: faceRect)
+            self.detectAndDrawRightEye(faceObservation: faceObservation, faceRect: faceRect)
+            self.detectAndDrawFaceContour(faceObservation: faceObservation, faceRect: faceRect)
+            self.detectAndDrawInnerLips(faceObservation: faceObservation, faceRect: faceRect)
+            self.detectAndDrawLeftEyebrow(faceObservation: faceObservation, faceRect: faceRect)
+            self.detectAndDrawRightEyebrow(faceObservation: faceObservation, faceRect: faceRect)
+            self.detectAndDrawMedianLine(faceObservation: faceObservation, faceRect: faceRect)
+            self.detectAndDrawNose(faceObservation: faceObservation, faceRect: faceRect)
+        }
     }
     
     //MARK: - Vision
@@ -60,7 +69,7 @@ class ViewController: UIViewController {
         }
     }
     
-    private func detectLandmarks(imageView: UIImageView){
+    func detectLandmarks(imageView: UIImageView, completion: @escaping ((VNFaceObservation, _ faceRect: CGRect) -> Void)){
         let faceRequest = VNDetectFaceLandmarksRequest { (req, err) in
             if let err = err{
                 print("Failed to detect landmarks: \(err)")
@@ -68,26 +77,8 @@ class ViewController: UIViewController {
             
             req.results?.forEach({ (res) in
                 guard let faceObservation = res as? VNFaceObservation else{ return }
-                
-                guard let landmarks = faceObservation.landmarks else{ return }
-                guard let normalizedPoints = landmarks.leftEye?.normalizedPoints else{ return }
-                var leftEyePoints = self.compute(normilizedPoints: normalizedPoints, inImageView: imageView)
-                
-                let path = UIBezierPath()
-                path.move(to: leftEyePoints.first!)
-                
-                leftEyePoints.removeFirst()
-                leftEyePoints.forEach({ (point) in
-                    path.addLine(to: point)
-                })
-                
-                path.close()
-                
-                let shapeLayer = CAShapeLayer()
-                shapeLayer.path = path.cgPath
-                shapeLayer.strokeColor = UIColor.green.cgColor
-                
-                imageView.layer.addSublayer(shapeLayer)
+                let rect = self.computeRectFromBoundingBox(boundingBox: faceObservation.boundingBox, inImageView: imageView)
+                completion(faceObservation, rect)
             })
         }
         
@@ -100,7 +91,74 @@ class ViewController: UIViewController {
         }
     }
     
+    func detectAndDrawLeftEye(faceObservation: VNFaceObservation, faceRect: CGRect){
+        guard let landmarks = faceObservation.landmarks else{ return }
+        guard let leftEyePoints = landmarks.leftEye?.normalizedPoints else{ return }
+        computeAndDrawPoints(normilizedPoints: leftEyePoints, inRect: faceRect)
+    }
+    
+    func detectAndDrawRightEye(faceObservation: VNFaceObservation, faceRect: CGRect){
+        guard let landmarks = faceObservation.landmarks else{ return }
+        guard let rightEyePoints = landmarks.rightEye?.normalizedPoints else{ return }
+        computeAndDrawPoints(normilizedPoints: rightEyePoints, inRect: faceRect)
+    }
+    
+    func detectAndDrawFaceContour(faceObservation: VNFaceObservation, faceRect: CGRect){
+        guard let landmarks = faceObservation.landmarks else{ return }
+        guard let faceCounturPoints = landmarks.faceContour?.normalizedPoints else{ return }
+        computeAndDrawPoints(normilizedPoints: faceCounturPoints, inRect: faceRect)
+    }
+    
+    func detectAndDrawInnerLips(faceObservation: VNFaceObservation, faceRect: CGRect){
+        guard let landmarks = faceObservation.landmarks else{ return }
+        guard let innerLipsPoints = landmarks.innerLips?.normalizedPoints else{ return }
+        computeAndDrawPoints(normilizedPoints: innerLipsPoints, inRect: faceRect)
+    }
+    
+    func detectAndDrawLeftEyebrow(faceObservation: VNFaceObservation, faceRect: CGRect){
+        guard let landmarks = faceObservation.landmarks else{ return }
+        guard let leftEyebrowPoints = landmarks.leftEyebrow?.normalizedPoints else{ return }
+        computeAndDrawPoints(normilizedPoints: leftEyebrowPoints, inRect: faceRect)
+    }
+    
+    func detectAndDrawRightEyebrow(faceObservation: VNFaceObservation, faceRect: CGRect){
+        guard let landmarks = faceObservation.landmarks else{ return }
+        guard let rightEyebrowPoints = landmarks.rightEyebrow?.normalizedPoints else{ return }
+        computeAndDrawPoints(normilizedPoints: rightEyebrowPoints, inRect: faceRect)
+    }
+    
+    func detectAndDrawMedianLine(faceObservation: VNFaceObservation, faceRect: CGRect){
+        guard let landmarks = faceObservation.landmarks else{ return }
+        guard let medianLinePoints = landmarks.medianLine?.normalizedPoints else{ return }
+        computeAndDrawPoints(normilizedPoints: medianLinePoints, inRect: faceRect)
+    }
+    
+    func detectAndDrawNose(faceObservation: VNFaceObservation, faceRect: CGRect){
+        guard let landmarks = faceObservation.landmarks else{ return }
+        guard let nosePoints = landmarks.nose?.normalizedPoints else{ return }
+        computeAndDrawPoints(normilizedPoints: nosePoints, inRect: faceRect)
+    }
+    
     //MARK: - Help methods
+    
+    func computeAndDrawPoints(normilizedPoints: [CGPoint], inRect faceRect: CGRect){
+        var points = self.compute(normilizedPoints: normilizedPoints, inRect: faceRect)
+        
+        let path = UIBezierPath()
+        path.move(to: points.first!)
+        
+        points.removeFirst()
+        points.forEach({ (point) in
+            path.addLine(to: point)
+        })
+        let shapeLayer = CAShapeLayer()
+        shapeLayer.path = path.cgPath
+        shapeLayer.strokeColor = UIColor.green.cgColor
+        shapeLayer.fillColor = UIColor.clear.cgColor
+        shapeLayer.frame.origin = faceRect.origin
+        imageView.layer.addSublayer(shapeLayer)
+    }
+    
     private func drawHat(faceRect: CGRect) {
         let hat = #imageLiteral(resourceName: "Archer_Hat")
 
@@ -145,15 +203,16 @@ class ViewController: UIViewController {
         return CGRect(origin: origin, size: size)
     }
     
-    private func compute(normilizedPoints: [CGPoint], inImageView imageView: UIImageView) -> [CGPoint]{
+    private func compute(normilizedPoints: [CGPoint], inRect rect: CGRect) -> [CGPoint]{
         var points: [CGPoint] = []
         
         normilizedPoints.forEach { (normPoint) in
-            let point = CGPoint(x: (1 - normPoint.x) * imageView.bounds.width,
-                                y: ( 1 - normPoint.y) * imageView.bounds.height)
+            let point = CGPoint(x: normPoint.x * rect.size.width,
+                                y: ( 1 - normPoint.y) * rect.size.height)
             points.append(point)
         }
         return points
     }
+
 }
 
