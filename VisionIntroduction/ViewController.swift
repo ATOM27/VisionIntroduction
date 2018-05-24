@@ -55,6 +55,7 @@ class ViewController: UIViewController {
     func makeCoreML(){
         struct Face {
             var face: CGRect
+            var median = [CGPoint]()
             var leftEye = [CGPoint]()
             var rightEye = [CGPoint]()
         }
@@ -74,7 +75,8 @@ class ViewController: UIViewController {
                 
                 let leftEye = self.compute(normilizedPoints: (faceObservation.landmarks?.leftEye?.normalizedPoints)!, inRect: rect)
                 let rightEye = self.compute(normilizedPoints: (faceObservation.landmarks?.rightEye?.normalizedPoints)!, inRect: rect)
-                faceStruct.append(Face(face: rect, leftEye: leftEye, rightEye: rightEye))
+                let median = self.compute(normilizedPoints: (faceObservation.landmarks?.medianLine?.normalizedPoints)!, inRect: rect)
+                faceStruct.append(Face(face: rect, median: median, leftEye: leftEye, rightEye: rightEye))
             })
         }
         
@@ -101,7 +103,7 @@ class ViewController: UIViewController {
                     print("Scene: \(scene): \(bestResult.identifier) + \(bestResult.confidence)")
                     switch scene{
                     case .beach: faceStruct.forEach({ (face) in
-                        self.drawSunglasses(leftEye: face.leftEye, rightEye: face.rightEye, inFaceRect: face.face)
+                        self.drawSunglasses(leftEye: face.leftEye, rightEye: face.rightEye, median: face.median, inFaceRect: face.face)
                     })
                     case .forest: faceStruct.forEach({ (face) in
                         self.drawHat(faceRect: face.face)
@@ -224,9 +226,15 @@ class ViewController: UIViewController {
         self.view.addSubview(imageView)
     }
     
-    func drawSunglasses(leftEye: [CGPoint], rightEye: [CGPoint], inFaceRect: CGRect){
+    func drawSunglasses(leftEye: [CGPoint], rightEye: [CGPoint], median: [CGPoint],  inFaceRect: CGRect){
         let glasses = #imageLiteral(resourceName: "sunglasses")
         print("faceRect: \(inFaceRect)")
+        
+        let top = median.first
+        let bottom = median.last
+        
+        let estimatedSlope = ((top?.y)! - (bottom?.y)!)/((top?.x)! - (bottom?.x)!)
+        let degrees =  (atan2(1, estimatedSlope) + estimatedSlope) * (CGFloat.pi/180)
         
         let minX = leftEye.reduce(CGFloat.infinity) { (res, point) -> CGFloat in
             return min(res, point.x)
@@ -255,7 +263,7 @@ class ViewController: UIViewController {
                                  y: inFaceRect.origin.y + y,
                                  width: width * 1.25,
                                  height: scaledHeight * 1.25)
-        
+        imageView.transform = CGAffineTransform(rotationAngle: degrees)
         imageView.contentMode = .scaleAspectFit
         self.view.addSubview(imageView)
     }
