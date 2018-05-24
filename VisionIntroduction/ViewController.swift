@@ -11,7 +11,7 @@ import Vision
 
 class ViewController: UIViewController {
     //MARK: - Properties
-    var image = UIImage(named: "image")!
+    var image = UIImage(named: "kids_at_beach")! //kids_at_beach //hiker //royal
     var imageView: UIImageView!
 
     //MARK: - Life cycle
@@ -26,29 +26,105 @@ class ViewController: UIViewController {
         imageView.frame = CGRect(x: 0, y: 0, width: view.frame.width, height: scaledHeight)
         self.view.addSubview(imageView)
         
+        makeCoreML()
+        
 //        self.detectFace(imageView: self.imageView)
-        self.detectFaceWithLandmarks(imageView: imageView) { (faceObservation, faceRect)  in
-            
-            guard let landmarks = faceObservation.landmarks else{ return }
-            self.detectAndDrawElement(element: landmarks.leftEye!, faceRect: faceRect)
-            self.detectAndDrawElement(element: landmarks.rightEye!, faceRect: faceRect)
-            self.detectAndDrawElement(element: landmarks.faceContour!, faceRect: faceRect)
-            self.detectAndDrawElement(element: landmarks.innerLips!, faceRect: faceRect)
-            self.detectAndDrawElement(element: landmarks.leftEyebrow!, faceRect: faceRect)
-            self.detectAndDrawElement(element: landmarks.rightEyebrow!, faceRect: faceRect)
-            self.detectAndDrawElement(element: landmarks.medianLine!, faceRect: faceRect)
-            self.detectAndDrawElement(element: landmarks.nose!, faceRect: faceRect)
-            
-            guard let rightEyeNormPoints = landmarks.rightEye?.normalizedPoints,
-                let leftEyeNormPoints = landmarks.leftEye?.normalizedPoints else{ return }
-            let rightEye = self.compute(normilizedPoints: rightEyeNormPoints, inRect: faceRect)
-            let leftEye = self.compute(normilizedPoints: leftEyeNormPoints, inRect: faceRect)
-            
-            self.drawSunglasses(leftEye: leftEye, rightEye: rightEye, inFaceRect: faceRect)
-        }
+//        self.detectFaceWithLandmarks(imageView: imageView) { (faceObservation, faceRect)  in
+//
+//            guard let landmarks = faceObservation.landmarks else{ return }
+//            self.detectAndDrawElement(element: landmarks.leftEye!, faceRect: faceRect)
+//            self.detectAndDrawElement(element: landmarks.rightEye!, faceRect: faceRect)
+//            self.detectAndDrawElement(element: landmarks.faceContour!, faceRect: faceRect)
+//            self.detectAndDrawElement(element: landmarks.innerLips!, faceRect: faceRect)
+//            self.detectAndDrawElement(element: landmarks.leftEyebrow!, faceRect: faceRect)
+//            self.detectAndDrawElement(element: landmarks.rightEyebrow!, faceRect: faceRect)
+//            self.detectAndDrawElement(element: landmarks.medianLine!, faceRect: faceRect)
+//            self.detectAndDrawElement(element: landmarks.nose!, faceRect: faceRect)
+//
+//            guard let rightEyeNormPoints = landmarks.rightEye?.normalizedPoints,
+//                let leftEyeNormPoints = landmarks.leftEye?.normalizedPoints else{ return }
+//            let rightEye = self.compute(normilizedPoints: rightEyeNormPoints, inRect: faceRect)
+//            let leftEye = self.compute(normilizedPoints: leftEyeNormPoints, inRect: faceRect)
+//
+//            self.drawSunglasses(leftEye: leftEye, rightEye: rightEye, inFaceRect: faceRect)
+//        }
     }
     
     //MARK: - Vision
+    
+    func makeCoreML(){
+        struct Face {
+            var face: CGRect
+            var leftEye = [CGPoint]()
+            var rightEye = [CGPoint]()
+        }
+        
+        var faceStruct = [Face]()
+        
+        let request = VNDetectFaceLandmarksRequest { (req, err) in
+            if let err = err{
+                print("Failed to detect faces: \(err)")
+                return
+            }
+            
+            req.results?.forEach({ (res) in
+                guard let faceObservation = res as? VNFaceObservation else{ return }
+                
+                let rect = self.computeRectFromBoundingBox(boundingBox: faceObservation.boundingBox, inImageView: self.imageView)
+                
+                let leftEye = self.compute(normilizedPoints: (faceObservation.landmarks?.leftEye?.normalizedPoints)!, inRect: rect)
+                let rightEye = self.compute(normilizedPoints: (faceObservation.landmarks?.rightEye?.normalizedPoints)!, inRect: rect)
+                faceStruct.append(Face(face: rect, leftEye: leftEye, rightEye: rightEye))
+            })
+        }
+        
+        guard let cgImage = imageView.image?.cgImage else{ return }
+        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+        
+        var requests: [VNRequest] = [request]
+        
+        let leNetPalces = GoogLeNetPlaces()
+        
+        if let model = try? VNCoreMLModel(for: leNetPalces.model){
+            let mlRequest = VNCoreMLRequest(model: model) { (request, error) in
+                guard let observations = request.results as? [VNClassificationObservation] else{
+                    print("unexpected result type from VNCoreMLRequest")
+                    return
+                }
+                guard let bestResult = observations.first else{
+                    print("Did not a valid classification")
+                    return
+                }
+                
+                DispatchQueue.main.async {
+                    let scene = SceneType(classification: bestResult.identifier)
+                    print("Scene: \(scene): \(bestResult.identifier) + \(bestResult.confidence)")
+                    switch scene{
+                    case .beach: faceStruct.forEach({ (face) in
+                        self.drawSunglasses(leftEye: face.leftEye, rightEye: face.rightEye, inFaceRect: face.face)
+                    })
+                    case .forest: faceStruct.forEach({ (face) in
+                        self.drawHat(faceRect: face.face)
+                    })
+                    case .other:
+                        return
+                    }
+                }
+            }
+            requests.append(mlRequest)
+        }
+        
+        DispatchQueue.main.async {
+            do{
+                try handler.perform(requests)
+            }catch let err{
+                print("Error handling Vision request: \(err)")
+            }
+        }
+    }
+    
+    
+    
     private func detectFace(imageView: UIImageView){
         let request = VNDetectFaceRectanglesRequest { (req, err) in
             
@@ -141,17 +217,16 @@ class ViewController: UIViewController {
             height: adjustedHatSize.height)
 
         let imageView = UIImageView(image: hat)
-        imageView.layer.borderWidth = 2
-        imageView.layer.borderColor = UIColor.cyan.cgColor
+//        imageView.layer.borderWidth = 2
+//        imageView.layer.borderColor = UIColor.cyan.cgColor
         
         imageView.frame = hatRect
         self.view.addSubview(imageView)
     }
     
     func drawSunglasses(leftEye: [CGPoint], rightEye: [CGPoint], inFaceRect: CGRect){
-        let glasses = #imageLiteral(resourceName: "Archer_Hat")
-        let someView = UIView()
-        someView.backgroundColor = UIColor.red
+        let glasses = #imageLiteral(resourceName: "sunglasses")
+        print("faceRect: \(inFaceRect)")
         
         let minX = leftEye.reduce(CGFloat.infinity) { (res, point) -> CGFloat in
             return min(res, point.x)
@@ -159,7 +234,6 @@ class ViewController: UIViewController {
         let maxX = rightEye.reduce(0) { (res, point) -> CGFloat in
             return max(res, point.x)
         }
-        
         let minY = leftEye.reduce(CGFloat.infinity) { (res, point) -> CGFloat in
             return min(res, point.y)
         }
@@ -168,11 +242,21 @@ class ViewController: UIViewController {
         }
         
         let width = maxX - minX
-        let height = maxY - minY
+        
+        let x = (maxX - minX) / 2.0 + minX - width / 2.0
+        
+        
+        let scaledHeight = width / glasses.size.width * glasses.size.height
+        
+        let y = (maxY - minY) / 2.0 + minY - scaledHeight / 2.0
         
         let imageView = UIImageView(image: glasses)
-        imageView.frame = CGRect(x: minX, y: maxY, width: width, height: height)
-        imageView.frame = inFaceRect
+        imageView.frame = CGRect(x: x + inFaceRect.origin.x,
+                                 y: inFaceRect.origin.y + y,
+                                 width: width * 1.25,
+                                 height: scaledHeight * 1.25)
+        
+        imageView.contentMode = .scaleAspectFit
         self.view.addSubview(imageView)
     }
     
@@ -204,6 +288,5 @@ class ViewController: UIViewController {
         }
         return points
     }
-
 }
 
